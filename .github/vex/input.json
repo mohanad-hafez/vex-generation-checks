@@ -1,0 +1,10 @@
+{
+  "alert_number": "5",
+  "ghsa_id": "GHSA-9wv6-86v2-598j",
+  "cve_id": "CVE-2024-45296",
+  "package_name": "path-to-regexp",
+  "package_ecosystem": "npm",
+  "severity": "high",
+  "summary": "path-to-regexp outputs backtracking regular expressions",
+  "dismissed_reason": "not_used"
+}

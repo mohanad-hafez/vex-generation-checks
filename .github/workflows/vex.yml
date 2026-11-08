@@ -1,0 +1,49 @@
+name: Dismissal statement
+on:
+  push:
+    branches: [replacement-vex-01]
+    paths: [.github/vex-ready]
+permissions:
+  contents: read
+jobs:
+  generate:
+    if: github.repository == 'mohanad-hafez/vex-generation-checks'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python3 -m pip install --user 'jsonschema[format-nongpl]==4.23.0'
+      - run: python3 -m unittest discover -s .github/vex -p test_vex_generate.py -v
+      - run: python3 .github/vex/vex_generate.py
+      - uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        with:
+          script: |
+            const fs=require('fs');
+            const result=JSON.parse(fs.readFileSync('vex-result.json','utf8'));
+            if(result.status!=='generated')throw Error('No statement generated');
+            if(result.path!=='.vex/GHSA-9wv6-86v2-598j.json')throw Error('Unexpected path');
+            const files=[result.path,'.vex/README.md'];
+            const repo=context.repo;
+            const b=await github.rest.repos.getBranch({...repo,branch:'vex-base-01'});
+            if(b.data.commit.sha!=='ac3a49b867ffe9aa0dff5bdbbf9a2a1e54f86368')throw Error('Base changed');
+            const t=await github.rest.git.createTree({...repo,base_tree:'6401490eec438f62a8463378409a006f76873e05',tree:files.map(path=>({path,type:'blob',mode:'100644',content:fs.readFileSync(path,'utf8')}))});
+            const c=await github.rest.git.createCommit({...repo,message:'Add supplied dismissal statement',tree:t.data.sha,parents:['ac3a49b867ffe9aa0dff5bdbbf9a2a1e54f86368']});
+            const head='vex-statement-result-01';
+            await github.rest.git.createRef({...repo,ref:'refs/heads/'+head,sha:c.data.sha});
+            const p=await github.rest.pulls.create({...repo,base:'vex-base-01',head,title:'Add VEX statement for CVE-2024-45296 (path-to-regexp)',body:'Records supplied dismissal reason not_used as not_affected / vulnerable_code_not_present. Auto-generated metadata; review before use. Original alert reference: https://github.com/carlin-dependabot-testing/vex-auto-generator/security/dependabot/5'});
+            fs.writeFileSync('publication.json',JSON.stringify({number:p.data.number,url:p.data.html_url,commit:c.data.sha,files},null,2));
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: vex-result
+          path: |
+            vex-result.json
+            publication.json
+            .github/vex/input.json
+          include-hidden-files: true
+          retention-days: 14

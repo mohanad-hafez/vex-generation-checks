@@ -1,0 +1,59 @@
+name: Matched deterministic VEX
+on:
+  push:
+    branches: [matched-vex-script-01]
+permissions:
+  contents: read
+jobs:
+  vex:
+    if: github.repository == 'mohanad-hafez/vex-generation-checks'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Load the frozen dispatch
+        run: cp fixed-dispatch.json .github/vex/input.json
+      - name: Set up validator
+        run: python3 -m pip install --user 'jsonschema[format-nongpl]==4.23.0'
+      - name: Generate and validate the statement
+        run: python3 .github/vex/vex_generate.py
+      - name: Publish one isolated pull request
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        with:
+          retries: 0
+          script: |
+            const fs = require('node:fs');
+            const r = JSON.parse(fs.readFileSync('vex-result.json','utf8'));
+            const input = JSON.parse(fs.readFileSync('fixed-dispatch.json','utf8'));
+            const base = 'matched-vex-base-01';
+            const head = 'matched-vex-output-script-' + context.runId;
+            const expectedPath = '.vex/' + input.ghsa_id + '.json';
+            if (r.status !== 'generated' || r.path !== expectedPath) throw Error('Unexpected result');
+            const root = await github.rest.repos.getBranch({...context.repo,branch:base});
+            const parent = await github.rest.git.getCommit({...context.repo,commit_sha:root.data.commit.sha});
+            const tree = await github.rest.git.createTree({...context.repo,base_tree:parent.data.tree.sha,
+              tree:[expectedPath,'.vex/README.md'].map(path=>({path,mode:'100644',type:'blob',content:fs.readFileSync(path,'utf8')}))});
+            const commit = await github.rest.git.createCommit({...context.repo,message:'Add matched VEX statement',
+              tree:tree.data.sha,parents:[parent.data.sha]});
+            fs.writeFileSync('publication.json',JSON.stringify({status:'delivery_started',head,commit:commit.data.sha}));
+            await github.rest.git.createRef({...context.repo,ref:'refs/heads/'+head,sha:commit.data.sha});
+            const pr = await github.rest.pulls.create({...context.repo,base,head,
+              title:'[VEX] Add VEX statement for '+input.cve_id+' ('+input.package_name+')',
+              body:'Records the supplied '+input.dismissed_reason+' dismissal. Auto-generated statement. Review before use.\n\nSource alert: https://github.com/carlin-dependabot-testing/vex-auto-generator/security/dependabot/'+input.alert_number});
+            fs.writeFileSync('publication.json',JSON.stringify({status:'published',head,number:pr.data.number,url:pr.data.html_url}));
+            await github.rest.issues.addLabels({...context.repo,issue_number:pr.data.number,labels:['vex','automated']});
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: matched-vex-script
+          path: |
+            fixed-dispatch.json
+            publication.json
+            vex-result.json
+          retention-days: 7

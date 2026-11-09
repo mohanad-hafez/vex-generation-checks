@@ -1,0 +1,26 @@
+{
+  "inputs": {
+    "dispatch": {
+      "alert_number": "5",
+      "ghsa_id": "GHSA-9wv6-86v2-598j",
+      "cve_id": "CVE-2024-45296",
+      "package_name": "path-to-regexp",
+      "package_ecosystem": "npm",
+      "severity": "high",
+      "summary": "path-to-regexp outputs backtracking regular expressions",
+      "dismissed_reason": "not_used"
+    },
+    "manifest": {
+      "name": "vex-auto-generator",
+      "version": "1.0.0",
+      "description": "Prototype for auto-generating VEX statements on Dependabot alert dismissal",
+      "dependencies": {
+        "lodash": "4.17.20",
+        "minimist": "1.2.5",
+        "express": "4.17.1"
+      }
+    },
+    "repository": "mohanad-hafez/vex-generation-checks"
+  },
+  "output_description": "Submit the complete OpenVEX document as a JSON string with no code fence."
+}

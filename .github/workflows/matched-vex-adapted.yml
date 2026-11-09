@@ -1,0 +1,103 @@
+name: Matched VEX statement
+on:
+  push:
+    branches: [matched-vex-adapted-02]
+permissions:
+  contents: read
+jobs:
+  generate:
+    if: github.repository == 'mohanad-hafez/vex-generation-checks'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      copilot-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [agent, script]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Set up the schema validator
+        run: python3 -m pip install --user 'jsonschema[format-nongpl]==4.23.0'
+      - name: Install Copilot
+        if: matrix.arm == 'agent'
+        run: npm install --global @github/copilot@1.0.108
+      - name: Generate and verify the statement
+        env:
+          ARM: ${{ matrix.arm }}
+          GITHUB_TOKEN: ${{ matrix.arm == 'agent' && github.token || '' }}
+        run: |
+          mkdir evidence
+          if [ "$ARM" = script ]; then
+            cp fixed-dispatch.json .github/vex/input.json
+            python3 .github/vex/vex_generate.py
+            cp .vex/GHSA-9wv6-86v2-598j.json evidence/statement.json
+          else
+            node -e 'const c=process.cwd(); console.log(JSON.stringify({mcpServers:{fixture:{type:"local",command:"node",args:[c+"/.github/vex/component_fixture.cjs",c+"/.github/vex/fixture.json",c+"/evidence/tools.jsonl"],tools:["*"]}}}))' > fixture-mcp.json
+            copilot --version > evidence/version.txt
+            timeout 180s copilot --disable-builtin-mcps --disable-client-telemetry \
+              --additional-mcp-config=@fixture-mcp.json \
+              --available-tools=fixture-read_input,fixture-publish_result \
+              --allow-tool=fixture --no-ask-user --no-color --silent \
+              --prompt "$(cat .github/vex/prompt.md)" > evidence/output.txt 2> evidence/diagnostics.txt
+            node -e 'const f=require("fs");const c=f.readFileSync("evidence/tools.jsonl","utf8").trim().split("\n").map(JSON.parse);if(c.some(x=>x.error)||c.at(-1).name!=="publish_result")throw Error("Missing statement");f.writeFileSync("evidence/statement.json",JSON.stringify(JSON.parse(c.at(-1).args.body),null,2)+"\n")'
+          fi
+          python3 .github/vex/validate_pair.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: vex-${{ matrix.arm }}
+          path: evidence/
+          retention-days: 14
+  publish:
+    needs: generate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [agent, script]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: vex-${{ matrix.arm }}
+          path: evidence
+      - name: Publish the draft assessment
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        env:
+          ARM: ${{ matrix.arm }}
+        with:
+          retries: 0
+          script: |
+            const fs = require('node:fs');
+            const {createHash} = require('node:crypto');
+            const bytes = fs.readFileSync('evidence/statement.json');
+            const digest = createHash('sha256').update(bytes).digest('hex');
+            if (digest !== fs.readFileSync('evidence/validated.sha256','utf8').trim()) throw Error('Statement failed handoff validation');
+            const input = require('./fixed-dispatch.json');
+            const base = 'matched-vex-base-01';
+            const head = 'matched-vex-' + process.env.ARM + '-' + context.runId;
+            const root = await github.rest.repos.getBranch({...context.repo,branch:base});
+            if (root.data.commit.sha !== '75c78aad37bbe1285165199cd9cae981cdf65920') throw Error('Base moved');
+            const parent = await github.rest.git.getCommit({...context.repo,commit_sha:root.data.commit.sha});
+            const tree = await github.rest.git.createTree({...context.repo,base_tree:parent.data.tree.sha,tree:[
+              {path:'.vex/'+input.ghsa_id+'.json',type:'blob',mode:'100644',content:bytes.toString('utf8')},
+              {path:'.vex/README.md',type:'blob',mode:'100644',content:fs.readFileSync('.github/vex/README.txt','utf8')},
+            ]});
+            const commit = await github.rest.git.createCommit({...context.repo,message:'Add VEX statement',tree:tree.data.sha,parents:[parent.data.sha]});
+            await github.rest.git.createRef({...context.repo,ref:'refs/heads/'+head,sha:commit.data.sha});
+            const pr = await github.rest.pulls.create({...context.repo,base,head,
+              title:'[VEX] Add VEX statement for '+input.cve_id+' ('+input.package_name+')',
+              body:'Records the supplied '+input.dismissed_reason+' dismissal. Auto-generated statement. Review before use.\n\nSource alert: https://github.com/carlin-dependabot-testing/vex-auto-generator/security/dependabot/'+input.alert_number});
+            await github.rest.issues.addLabels({...context.repo,issue_number:pr.data.number,labels:['vex','automated']});
+            core.info('Published pull request #' + pr.data.number);

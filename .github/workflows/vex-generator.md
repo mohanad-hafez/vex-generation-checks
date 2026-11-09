@@ -1,44 +1,7 @@
 ---
 on:
-  workflow_dispatch:
-    inputs:
-      alert_number:
-        description: "Dependabot alert number"
-        required: true
-        type: string
-      ghsa_id:
-        description: "GHSA ID (e.g., GHSA-xvch-5gv4-984h)"
-        required: true
-        type: string
-      cve_id:
-        description: "CVE ID (e.g., CVE-2021-44906)"
-        required: true
-        type: string
-      package_name:
-        description: "Affected package name (e.g., minimist)"
-        required: true
-        type: string
-      package_ecosystem:
-        description: "Package ecosystem (e.g., npm, pip, maven)"
-        required: true
-        type: string
-      severity:
-        description: "Vulnerability severity (low, medium, high, critical)"
-        required: true
-        type: string
-      summary:
-        description: "Brief vulnerability summary"
-        required: true
-        type: string
-      dismissed_reason:
-        description: "Dismissal reason"
-        required: true
-        type: choice
-        options:
-          - not_used
-          - inaccurate
-          - tolerable_risk
-          - no_bandwidth
+  push:
+    branches: [matched-vex-agent-01]
 
 description: >
   Auto-generates an OpenVEX statement for a dismissed Dependabot alert.
@@ -46,20 +9,21 @@ description: >
   OpenVEX document and opens a PR.
 
 permissions:
+  copilot-requests: write
   contents: read
   issues: read
   pull-requests: read
   security-events: read
 
 env:
-  ALERT_NUMBER: ${{ github.event.inputs.alert_number }}
-  ALERT_GHSA_ID: ${{ github.event.inputs.ghsa_id }}
-  ALERT_CVE_ID: ${{ github.event.inputs.cve_id }}
-  ALERT_PACKAGE: ${{ github.event.inputs.package_name }}
-  ALERT_ECOSYSTEM: ${{ github.event.inputs.package_ecosystem }}
-  ALERT_SEVERITY: ${{ github.event.inputs.severity }}
-  ALERT_SUMMARY: ${{ github.event.inputs.summary }}
-  ALERT_DISMISSED_REASON: ${{ github.event.inputs.dismissed_reason }}
+  ALERT_NUMBER: "5"
+  ALERT_GHSA_ID: "GHSA-9wv6-86v2-598j"
+  ALERT_CVE_ID: "CVE-2024-45296"
+  ALERT_PACKAGE: "path-to-regexp"
+  ALERT_ECOSYSTEM: "npm"
+  ALERT_SEVERITY: "high"
+  ALERT_SUMMARY: "path-to-regexp outputs backtracking regular expressions"
+  ALERT_DISMISSED_REASON: "not_used"
 
 tools:
   bash: true
@@ -67,10 +31,14 @@ tools:
 
 safe-outputs:
   create-pull-request:
+    base-branch: matched-vex-base-01
+    allowed-files: [".vex/*.json", ".vex/README.md"]
     title-prefix: "[VEX] "
     labels: [vex, automated]
     draft: false
 
+timeout-minutes: 10
+max-ai-credits: 20
 engine:
   id: copilot
 ---
